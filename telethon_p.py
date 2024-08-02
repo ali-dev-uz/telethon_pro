@@ -9,6 +9,7 @@ api_id = 22635068
 api_hash = '215ea3f96f9db89c1da1d68ca612c8f5'
 phone = '+447355739673'
 
+
 forward_to_username = 'MaestroSniperBot'
 
 client = TelegramClient('session_name1', api_id, api_hash)
