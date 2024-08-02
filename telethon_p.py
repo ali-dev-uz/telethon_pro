@@ -9,10 +9,11 @@ api_id = 22635068
 api_hash = '215ea3f96f9db89c1da1d68ca612c8f5'
 phone = '+447355739673'
 
-
 forward_to_username = 'MaestroSniperBot'
+buy_cost = 0.001
 
-client = TelegramClient('session_name1', api_id, api_hash)
+
+client = TelegramClient('session_name', api_id, api_hash)
 sys.stdout.reconfigure(encoding='utf-8')
 
 
@@ -85,7 +86,8 @@ async def handle_keywords_and_forward(message_text, sender):
     forward_text = None
     message_text = re.sub(r'\*\*(.*?)\*\*', lambda m: m.group(1).replace('\n', ' '), message_text, flags=re.DOTALL)
 
-    for keyword in ['CA', 'COMPLETED', 'WEBSITE']:
+# ['CA', 'COMPLETED', 'WEBSITE']
+    for keyword in ['COMPLETED']:
         match = re.search(rf'\b{keyword}\b:?\s*(?:\n)?\s*(.+)', message_text, re.IGNORECASE | re.DOTALL)
         if match:
             forward_text = match.group(1).strip().split()[0]
@@ -136,13 +138,6 @@ async def handle_message_new(event):
                         await event.message.click(5)
                         print(f"{button.text}")
                         break
-                    if button.text == "❌ Snipe Disabled":
-                        await event.message.click(5)
-                        print(f"{button.text}")
-                        await asyncio.sleep(1)
-                    if button.text == "✏️ Buy Amount":
-                        await event.message.click(7)
-                        print(f"{button.text}")
         except AttributeError:
             pass
 
@@ -158,6 +153,11 @@ async def handle_message_edit(event):
                     snipe_button = True
                 else:
                     if button.text == "✏️ Buy Amount" and snipe_button is True:
+                        await event.message.click(5)
+                        print(f"{button.text}")
+                        button_clicked = True
+                        break
+                    elif button.text == f"✏️ Buy Amount: {buy_cost} SOL" and snipe_button is True:
                         await event.message.click(5)
                         print(f"{button.text}")
                         button_clicked = True
@@ -178,7 +178,7 @@ async def handle_message_send(event):
         if msg_with_second_menu:
             await msg_with_second_menu.click(7)  # Click the buy button
             print(f"Clicked button: {second_menu_buttons[7]}")
-            await wait_for_reply_and_send_amount(forward_to, '0.001')
+            await wait_for_reply_and_send_amount(forward_to, f'{buy_cost}')
 
 
 async def main():
