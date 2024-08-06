@@ -11,8 +11,17 @@ api_hash = '215ea3f96f9db89c1da1d68ca612c8f5'
 phone = '+447355739673'
 
 
-forward_to_username = 'MaestroSniperBot'
-buy_cost = 0.001
+forward_to_username = 'MaestroProBot'
+bot_id = 6006866508
+
+buy_cost = {
+    "2030160217": 0.05,
+    "2197950476": 0.001,
+    "2215059530": 0.002,
+    "default": 0.003
+}
+
+cash_data = {}
 
 logging.basicConfig(
     filename='telethon_errors.log',
@@ -31,8 +40,209 @@ async def get_chat_and_sender(event):
     return chat, sender
 
 
+async def process_channel_message(event, sender):
+    message_text = event.message.text or ""
+    cleaned_message_text = clean_text(message_text)
+    # print(f"Channel message text: {cleaned_message_text}")
+    await handle_keywords_and_forward(message_text, sender)
+
+
+def clean_text(text):
+    text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+    text = re.sub(r'__(.*?)__', r'\1', text)
+    text = re.sub(r'http[s]?://\S+', '', text)
+    text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
+    text = re.sub(r'\[.*?\]\(.*?\)', '', text)
+    text = re.sub(r'[\*_]{1,2}', '', text)
+    return text
+
+
+async def handle_keywords_and_forward(message_text, sender):
+    forward_text = None
+    message_text = re.sub(r'\*\*(.*?)\*\*', lambda m: m.group(1).replace('\n', ' '), message_text, flags=re.DOTALL)
+
+    # ['CA', 'COMPLETED', 'WEBSITE']
+    for keyword in ['COMPLETED']:
+        match = re.search(rf'\b{keyword}\b:?\s*(?:\n)?\s*(.+)', message_text, re.IGNORECASE | re.DOTALL)
+        if match:
+            forward_text = match.group(1).strip().split()[0]
+            # print(f"Keyword '{keyword}' found. Text to forward: {forward_text}")
+            break
+
+    if forward_text:
+        forward_text = re.sub(r'`', '', forward_text)
+        global cash_data
+        forward_to = await client.get_entity(forward_to_username)
+        cash_data[forward_text] = {'tg_id': sender.id,
+                                   'message_id': 0,
+                                   'sine_opshin': False,
+                                   'enable_button': False,
+                                   'buy_set': False}
+        await client.send_message(forward_to, f"{forward_text}")
+        # await client.send_message(forward_to, f"{forward_text}\n#tg_id:{sender.id}")
+
+        await asyncio.sleep(1)
+    else:
+        print(f"No actionable keywords found in message from {sender.id}.")
+
+
+async def wait_for_buttons(entity, buttons_list, min_buttons):
+    async for message in client.iter_messages(entity, limit=3):
+        if hasattr(message, 'reply_markup') and message.reply_markup:
+            for row in message.reply_markup.rows:
+                for button in row.buttons:
+                    buttons_list.append(button.text)
+                    if button.text == '❌ Snipe Disabled' or button.text == '✅ Snipe Enabled':
+                        return message
+            if len(buttons_list) >= min_buttons:
+                return message
+            await asyncio.sleep(0.001)
+        await asyncio.sleep(0.001)
+    return None
+
+
+async def wait_for_reply_and_send_amount(entity, amount):
+    async for reply_message in client.iter_messages(entity, limit=5):
+        if reply_message.text and "Reply" in reply_message.text:
+            await client.send_message(entity, amount, reply_to=reply_message.id)
+            print(f"Sent buy amount: {amount}")
+            break
+        await asyncio.sleep(0.001)
+
+
+@client.on(events.NewMessage(from_users=bot_id))
+async def handle_message_new_out(event):
+    global cash_data
+    first_button = False
+    snipe_now_button = False
+    if hasattr(event.message, 'reply_markup') and event.message.reply_markup:
+        for row in event.message.reply_markup.rows:
+            for button in row.buttons:
+                try:
+                    if button.text == '⚙ Snipe Options':
+                        first_button = True
+                        break
+                    elif button.text in '🎯 Snipe Now':
+                        snipe_now_button = True
+                except AttributeError:
+                    pass
+            await asyncio.sleep(0.001)
+        await asyncio.sleep(0.001)
+    elif "✅ Snipe amount set to" in event.message.text:
+        # Search for the pattern in the text
+        match = re.search(r'for\s+`([A-Za-z0-9]+)`', event.message.text)
+        # Extract and print the address if a match is found
+        if match:
+            crypto_address = match.group(1)
+            crypto_address = re.sub(r'`', '', crypto_address)
+            cash_data.pop(crypto_address)
+        else:
+            print("No address found")
+    if first_button:
+        pattern_1 = r'\[CA\]\(https://solscan\.io/token/([A-Za-z0-9]+)\): `([A-Za-z0-9]+)`'
+        match_1 = re.search(pattern_1, event.message.text)
+        first_ca = match_1.group(1)
+        first_ca = re.sub(r'`', '', first_ca)
+
+        if snipe_now_button:
+            cash_data[first_ca]['sine_opshin'] = True
+            await event.message.click(5)
+        else:
+            cash_data[first_ca]['sine_opshin'] = True
+            await event.message.click(4)
+    else:
+        pass
+
+
+@client.on(events.MessageEdited(from_users=bot_id, incoming=True))
+async def handle_message_edit(event):
+    global cash_data
+    forward_to = await client.get_entity(forward_to_username)
+    button_enable = False
+    there_is_button = False
+    if hasattr(event.message, 'reply_markup') and event.message.reply_markup:
+        for row in event.message.reply_markup.rows:
+            for button in row.buttons:
+                try:
+                    if button.text == '✅ Snipe Enabled':
+                        there_is_button = True
+                        button_enable = True
+                        break
+                    elif button.text == '❌ Snipe Disabled':
+                        there_is_button = True
+                        break
+                except AttributeError:
+                    pass
+            await asyncio.sleep(0.001)
+        await asyncio.sleep(0.001)
+    if there_is_button:
+        pattern_1 = r'\[CA\]\(https://solscan\.io/token/([A-Za-z0-9]+)\): `([A-Za-z0-9]+)`'
+        match_1 = re.search(pattern_1, event.message.text)
+        first_ca = match_1.group(1)
+        first_ca = re.sub(r'`', '', first_ca)
+        pprint.pprint(cash_data)
+        buy_set_status = cash_data[f'{first_ca}']
+        buy_see = buy_set_status['buy_set']
+        clicked_disable_button = cash_data[first_ca]['enable_button']
+        if button_enable and not buy_see:
+            cost_amount = buy_cost.get('default')
+            await event.message.click(7)
+            try:
+                cosy_detect = cash_data[first_ca]
+                cosy_detect = cosy_detect['tg_id']
+                cost_amount = buy_cost.get(f"{cosy_detect}")
+                if cost_amount is None:
+                    cost_amount = buy_cost.get('default')
+            except:
+                pass
+            cash_data[first_ca]['buy_set'] = True
+            await wait_for_reply_and_send_amount(forward_to, f'{cost_amount}')
+
+        elif not clicked_disable_button:
+            cash_data[first_ca]['enable_button'] = True
+            await event.message.click(5)
+
+
+    else:
+        pass
+
+
+@client.on(events.NewMessage(from_users=bot_id, pattern=r"❌ This token has launched already\."))
+async def handle_message_send_none(event):
+    global cash_data
+    forward_to = await client.get_entity(forward_to_username)
+    second_menu_buttons = []
+    msg_with_second_menu = await wait_for_buttons(forward_to, second_menu_buttons, 4)
+
+    if msg_with_second_menu:
+
+        pattern_1 = r'\[CA\]\(https://solscan\.io/token/([A-Za-z0-9]+)\): `([A-Za-z0-9]+)`'
+        match_1 = re.search(pattern_1, msg_with_second_menu.text)
+        first_ca = match_1.group(1)
+        first_ca = re.sub(r'`', '', first_ca)
+        if first_ca:
+            cost_amount = buy_cost.get('default')
+            try:
+                cosy_detect = cash_data[first_ca]
+                cosy_detect = cosy_detect['tg_id']
+                cost_amount = buy_cost.get(f"{cosy_detect}")
+                if cost_amount is None:
+                    cost_amount = buy_cost.get('default')
+            except:
+                pass
+            buy_set_status = cash_data[first_ca]['buy_set']
+            if buy_set_status is False:
+                await msg_with_second_menu.click(7)  # Click the buy button
+                cash_data[first_ca]['buy_set'] = True
+                await wait_for_reply_and_send_amount(forward_to, f'{cost_amount}')
+            else:
+                pass
+
+
+
+
 # Define event handler for incoming messages
-@client.on(events.NewMessage())
+@client.on(events.NewMessage(incoming=True))
 async def handle_new_message(event):
     chat, sender = await get_chat_and_sender(event)
     chat_data = chat.to_dict() if hasattr(chat, 'to_dict') else None
@@ -72,198 +282,6 @@ async def handle_new_message(event):
         else:
             pass
             # print(f"Message from user: - {event.message.text}")
-
-
-async def process_channel_message(event, sender):
-    message_text = event.message.text or ""
-    cleaned_message_text = clean_text(message_text)
-    # print(f"Channel message text: {cleaned_message_text}")
-    await handle_keywords_and_forward(message_text, sender)
-
-
-def clean_text(text):
-    text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
-    text = re.sub(r'__(.*?)__', r'\1', text)
-    text = re.sub(r'http[s]?://\S+', '', text)
-    text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
-    text = re.sub(r'\[.*?\]\(.*?\)', '', text)
-    text = re.sub(r'[\*_]{1,2}', '', text)
-    return text
-
-
-async def handle_keywords_and_forward(message_text, sender):
-    forward_text = None
-    message_text = re.sub(r'\*\*(.*?)\*\*', lambda m: m.group(1).replace('\n', ' '), message_text, flags=re.DOTALL)
-
-# ['CA', 'COMPLETED', 'WEBSITE']
-    for keyword in ['COMPLETED']:
-        match = re.search(rf'\b{keyword}\b:?\s*(?:\n)?\s*(.+)', message_text, re.IGNORECASE | re.DOTALL)
-        if match:
-            forward_text = match.group(1).strip().split()[0]
-            # print(f"Keyword '{keyword}' found. Text to forward: {forward_text}")
-            break
-
-    if forward_text:
-        forward_to = await client.get_entity(forward_to_username)
-        await client.send_message(forward_to, forward_text)
-        print(f"Forwarded message from: {forward_text}")
-        await asyncio.sleep(2)
-    else:
-        print(f"No actionable keywords found in message from {sender.id}.")
-
-
-
-
-async def wait_for_buttons(entity, buttons_list, min_buttons):
-    async for message in client.iter_messages(entity, limit=5):
-        if hasattr(message, 'reply_markup') and message.reply_markup:
-            for row in message.reply_markup.rows:
-                for button in row.buttons:
-                    buttons_list.append(button.text)
-            if len(buttons_list) >= min_buttons:
-                return message
-    return None
-
-
-async def wait_for_reply_and_send_amount(entity, amount):
-    async for reply_message in client.iter_messages(entity, limit=5):
-        if reply_message.text and "Reply" in reply_message.text:
-            await client.send_message(entity, amount, reply_to=reply_message.id)
-            print(f"Sent buy amount: {amount}")
-            break
-
-
-@client.on(events.NewMessage(from_users=5486942816, incoming=True))
-async def handle_message_new(event):
-    if event.message.text in "Snipe amount set to":
-        pass
-    elif event.message.text in "❌ Buy":
-        pass
-    elif event.message.text in "⚡️Snipe activated":
-        pass
-    else:
-        if event.message.reply_markup:
-            try:
-                for row in event.message.reply_markup.rows:
-                    for button in row.buttons:
-                        if button.text == "⚙ Snipe Options":
-                            await event.message.click(4)
-                            # print(f"{button.text}")
-                            break
-                        elif button.text in '🎯 Snipe Now':
-                            await event.message.click(5)
-                            # print(f"{button.text}")
-                            break
-            except AttributeError:
-                pass
-
-
-@client.on(events.MessageEdited(from_users=5486942816, incoming=True))
-async def handle_message_edit(event):
-    forward_to = await client.get_entity(forward_to_username)
-
-    if event.message.text in "Snipe amount set to":
-        pass
-    else:
-        if event.message.reply_markup:
-            button_clicked = False
-            snipe_button = False
-            enable_on = False
-            for row in event.message.reply_markup.rows:
-                for button in row.buttons:
-                    if button.text == "❌ Snipe Disabled" and not button_clicked:
-                        snipe_button = True
-                    elif button.text == "✅ Snipe Enabled" and not button_clicked:
-                        snipe_button = False
-                        enable_on = True
-                    else:
-                        if button.text == "✏️ Buy Amount" and snipe_button is True:
-                            await event.message.click(5)
-                            print(f"{button.text}-{buy_cost}")
-                            await client.send_message(forward_to, "clicked")
-                            button_clicked = True
-                            await event.message.click(7)  # Click the buy button
-                            # print(f"Clicked button: {second_menu_buttons[7]}")
-                            await wait_for_reply_and_send_amount(forward_to, f'{buy_cost}')
-                            break
-
-                        elif button.text != f"✏️ Buy Amount: {buy_cost} SOL" and snipe_button is True:
-                            await event.message.click(5)
-                            await client.send_message(forward_to, "clicked")
-                            print(f"{button.text}-{buy_cost}")
-                            await event.message.click(7)  # Click the buy button
-                            # print(f"Clicked button: {second_menu_buttons[7]}")
-                            await wait_for_reply_and_send_amount(forward_to, f'{buy_cost}')
-                            button_clicked = True
-                            break
-                        # elif button.text in "✏️ Buy Amount" and enable_on is True:
-                        #     await event.message.click(7)
-                        #     print(f"{button.text}-{buy_cost}")
-                        #     await wait_for_reply_and_send_amount(forward_to, f'{buy_cost}')
-                        #     button_clicked = True
-                        #     break
-                        else:
-                            break
-                if button_clicked:
-                    break
-
-
-
-@client.on(events.NewMessage(from_users=5486942816, pattern=r"❌ This token has launched already\."))
-async def handle_message_send(event):
-    forward_to = await client.get_entity(forward_to_username)
-    second_menu_buttons = []
-    if event.message.text in "Snipe amount set to":
-        pass
-    elif event.message.text in "❌ Buy":
-        pass
-    elif event.message.text in "⚡️Snipe activated":
-        pass
-    else:
-        if "❌ This token has launched already." in event.message.text:
-            msg_with_second_menu = await wait_for_buttons(forward_to, second_menu_buttons, 4)
-            if msg_with_second_menu:
-                await msg_with_second_menu.click(7)  # Click the buy button
-                # print(f"Clicked button: {second_menu_buttons[7]}")
-                await wait_for_reply_and_send_amount(forward_to, f'{buy_cost}')
-
-
-
-# @client.on(events.NewMessage(outgoing=True, pattern=r"clicked"))
-# async def handle_message_send_out(event):
-#     forward_to = await client.get_entity(forward_to_username)
-#     second_menu_buttons = []
-#     logging.error(f"Start", exc_info=True)
-#     print("Start")
-#     if event.message.text in "Snipe amount set to":
-#         pass
-#     else:
-#         msg_with_second_menu = await wait_for_buttons(forward_to, second_menu_buttons, 4)
-#         if msg_with_second_menu:
-#             await msg_with_second_menu.click(7)  # Click the buy button
-#             logging.error(f"Clicked button: {second_menu_buttons[7]}", exc_info=True)
-#             print(f"Clicked button: {second_menu_buttons[7]}")
-#             await wait_for_reply_and_send_amount(forward_to, f'{buy_cost}')
-
-
-
-#
-# @client.on(events.NewMessage(from_users=5486942816, pattern=r"Reply to this message with your desired buy amount (in SOL) when trading is available\."))
-# async def handle_message_send(event):
-#     forward_to = await client.get_entity(forward_to_username)
-#     if event.message.text in "Snipe amount set to":
-#         pass
-#     elif event.message.text in "❌ Buy":
-#         pass
-#     elif event.message.text in "⚡️Snipe activated":
-#         pass
-#     elif event.message.text in "Reply":
-#         await wait_for_reply_and_send_amount(forward_to, f'{buy_cost}')
-#         await client.send_message(forward_to, f'{buy_cost}', reply_to=event.message.id)
-#         print(f"Sent buy amount: {buy_cost}")
-#
-#     else:
-#         pass
 
 
 async def main():
